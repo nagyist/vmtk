@@ -89,6 +89,8 @@ class vmtkDelaunayVoronoi(pypes.pypeScript):
         pypes.pypeScript.__init__(self)
         
         self.Surface = None
+        self.DelaunayTessellationInput = None
+        self.TetGenInput = None
         self.FlipNormals = 0
         self.CapDisplacement = 0.0
         self.RadiusArrayName = 'MaximumInscribedSphereRadius'
@@ -114,7 +116,10 @@ class vmtkDelaunayVoronoi(pypes.pypeScript):
         self.SetScriptDoc('')
         self.SetInputMembers([
             ['Surface','i','vtkPolyData',1,'','the input surface','vmtksurfacereader'],
-            ['CheckNonManifold','nonmanifoldcheck','bool',1,'','toggle checking the surface for non-manifold edges'],
+            #['DelaunayTessellationInput','di','vtkPolyData',1,'','the input surface','vmtksurfacereader'],
+            ['DelaunayTessellationInput','di','vtkUnstructuredGrid',1,'','the input DelaunayTessellation','vmtkmeshreader'],
+             ['TetGenInput','tgi','vtkPolyData',1,'','direct input for TetGen','vmtksurfacereader'],
+           ['CheckNonManifold','nonmanifoldcheck','bool',1,'','toggle checking the surface for non-manifold edges'],
             ['FlipNormals','flipnormals','bool',1,'','flip normals after outward normal computation; outward oriented normals must be computed for the removal of outer tetrahedra; the algorithm might fail so for weird geometries, so changing this might solve the problem'],
             ['CapDisplacement','capdisplacement','float',1,'','displacement of the center points of caps at open profiles along their normals (avoids the creation of degenerate tetrahedra)'],
             ['DelaunayTolerance','delaunaytolerance','float',1,'','tolerance for evaluating coincident points during Delaunay tessellation, evaluated as a fraction of the bounding box'],
@@ -135,7 +140,7 @@ class vmtkDelaunayVoronoi(pypes.pypeScript):
 
     def Execute(self):
 
-        if self.Surface == None:
+        if self.Surface == None and self.TetGenInput == None:
             self.PrintError('Error: No input surface.')
         
         if self.CheckNonManifold:
@@ -149,79 +154,94 @@ class vmtkDelaunayVoronoi(pypes.pypeScript):
                 self.PrintLog(nonManifoldChecker.Report)
                 return
 
-        self.PrintLog('Cleaning surface.')
-        surfaceCleaner = vtk.vtkCleanPolyData()
-        surfaceCleaner.SetInput(self.Surface)
-        surfaceCleaner.Update()
-
-        self.PrintLog('Triangulating surface.')
-        surfaceTriangulator = vtk.vtkTriangleFilter()
-        surfaceTriangulator.SetInput(surfaceCleaner.GetOutput())
-        surfaceTriangulator.PassLinesOff()
-        surfaceTriangulator.PassVertsOff()
-        surfaceTriangulator.Update()
-
-        surfaceCapper = vtkvmtk.vtkvmtkCapPolyData()
-        surfaceCapper.SetInput(surfaceTriangulator.GetOutput())
-        surfaceCapper.SetDisplacement(self.CapDisplacement)
-        surfaceCapper.SetInPlaneDisplacement(self.CapDisplacement)
-        surfaceCapper.Update()
-
-        capCenterIds = surfaceCapper.GetCapCenterIds()
-
-        surfaceNormals = vtk.vtkPolyDataNormals()
-        surfaceNormals.SetInput(surfaceCapper.GetOutput())
-        surfaceNormals.SplittingOff()
-        surfaceNormals.AutoOrientNormalsOn()
-        surfaceNormals.SetFlipNormals(self.FlipNormals)
-        surfaceNormals.ComputePointNormalsOn()
-        surfaceNormals.ConsistencyOn()
-        surfaceNormals.Update()
         
-        inputSurface = surfaceNormals.GetOutput()
+        if self.DelaunayTessellationInput == None:
 
-        if self.UseTetGen:
-            self.PrintLog('Running TetGen.')
-            import vmtkscripts
-            surfaceToMesh = vmtkscripts.vmtkSurfaceToMesh()
-            surfaceToMesh.Surface = inputSurface
-            surfaceToMesh.Execute()
-            tetgen = vmtkscripts.vmtkTetGen()
-            tetgen.Mesh = surfaceToMesh.Mesh
-            tetgen.PLC = 1
-            tetgen.NoMerge = 1
-            tetgen.Quality = 0
-            if self.TetGenDetectInter:
-                tetgen.DetectInter = 1
-                tetgen.NoMerge = 0
-            tetgen.OutputSurfaceElements = 0
-            tetgen.Execute()
-            self.DelaunayTessellation = tetgen.Mesh
+            # self.PrintLog('Cleaning surface.')
+            # surfaceCleaner = vtk.vtkCleanPolyData()
+            # surfaceCleaner.SetInput(self.Surface)
+            # surfaceCleaner.Update()
+
+            # self.PrintLog('Triangulating surface.')
+            # surfaceTriangulator = vtk.vtkTriangleFilter()
+            # surfaceTriangulator.SetInput(surfaceCleaner.GetOutput())
+            # surfaceTriangulator.PassLinesOff()
+            # surfaceTriangulator.PassVertsOff()
+            # surfaceTriangulator.Update()
+
+            # surfaceCapper = vtkvmtk.vtkvmtkCapPolyData()
+            # surfaceCapper.SetInput(surfaceTriangulator.GetOutput())
+            # surfaceCapper.SetDisplacement(self.CapDisplacement)
+            # surfaceCapper.SetInPlaneDisplacement(self.CapDisplacement)
+            # surfaceCapper.Update()
+
+            # capCenterIds = surfaceCapper.GetCapCenterIds()
+
+            # surfaceNormals = vtk.vtkPolyDataNormals()
+            # surfaceNormals.SetInput(surfaceCapper.GetOutput())
+            # surfaceNormals.SplittingOff()
+            # surfaceNormals.AutoOrientNormalsOn()
+            # surfaceNormals.SetFlipNormals(self.FlipNormals)
+            # surfaceNormals.ComputePointNormalsOn()
+            # surfaceNormals.ConsistencyOn()
+            # surfaceNormals.Update()
+
+            # inputSurface = surfaceNormals.GetOutput()
+
+            if self.UseTetGen:
+                self.PrintLog('Running TetGen mod.')
+                import vmtkscripts
+                # inputSurface = self.Surface
+                surfaceToMesh = vmtkscripts.vmtkSurfaceToMesh()
+                surfaceToMesh.Surface = self.TetGenInput
+                surfaceToMesh.Execute()
+                tetgen = vmtkscripts.vmtkTetGen()
+                tetgen.Mesh = surfaceToMesh.Mesh #self.TetGenInput
+                tetgen.PLC = 0
+                tetgen.NoMerge = 1
+                tetgen.Quality = 0
+                if self.TetGenDetectInter:
+                    tetgen.DetectInter = 1
+                    tetgen.NoMerge = 0
+                tetgen.OutputSurfaceElements = 0
+                tetgen.Execute()
+                self.DelaunayTessellation = tetgen.Mesh
+            else:
+                delaunayTessellator = vtk.vtkDelaunay3D()
+                delaunayTessellator.CreateDefaultLocator()
+                delaunayTessellator.SetInput(surfaceNormals.GetOutput())
+                delaunayTessellator.SetTolerance(self.DelaunayTolerance)
+                delaunayTessellator.Update()
+                self.DelaunayTessellation = delaunayTessellator.GetOutput()
+
         else:
-            delaunayTessellator = vtk.vtkDelaunay3D()
-            delaunayTessellator.CreateDefaultLocator()
-            delaunayTessellator.SetInput(surfaceNormals.GetOutput())
-            delaunayTessellator.SetTolerance(self.DelaunayTolerance)
-            delaunayTessellator.Update()
-            self.DelaunayTessellation = delaunayTessellator.GetOutput()
+            self.PrintLog('DelaunayTessellation given by input.')
+            # surfaceToMesh = vmtkscripts.vmtkSurfaceToMesh()
+            # surfaceToMesh.Surface = DelaunayTessellationInput
+            # surfaceToMesh.Execute()
 
-        normalsArray = surfaceNormals.GetOutput().GetPointData().GetNormals()
-        self.DelaunayTessellation.GetPointData().AddArray(normalsArray)
+            self.DelaunayTessellation = self.DelaunayTessellationInput
+            print self.DelaunayTessellation.GetPointData().GetNumberOfPoints()
+         
 
-        internalTetrahedraExtractor = vtkvmtk.vtkvmtkInternalTetrahedraExtractor()
-        internalTetrahedraExtractor.SetInput(self.DelaunayTessellation)
-        internalTetrahedraExtractor.SetOutwardNormalsArrayName(normalsArray.GetName())
-        if self.RemoveSubresolutionTetrahedra:
-            internalTetrahedraExtractor.RemoveSubresolutionTetrahedraOn()
-            internalTetrahedraExtractor.SetSubresolutionFactor(self.SubresolutionFactor)
-            internalTetrahedraExtractor.SetSurface(inputSurface)
-        if capCenterIds.GetNumberOfIds() > 0:
-          internalTetrahedraExtractor.UseCapsOn()
-          internalTetrahedraExtractor.SetCapCenterIds(capCenterIds)
-        internalTetrahedraExtractor.Update()
+        # normalsArray = surfaceNormals.GetOutput().GetPointData().GetNormals()
+        # self.DelaunayTessellation.GetPointData().AddArray(normalsArray)
 
-        self.DelaunayTessellation = internalTetrahedraExtractor.GetOutput()
+        # internalTetrahedraExtractor = vtkvmtk.vtkvmtkInternalTetrahedraExtractor()
+        # internalTetrahedraExtractor.SetInput(self.DelaunayTessellation)
+        # internalTetrahedraExtractor.SetOutwardNormalsArrayName(normalsArray.GetName())
+        # if self.RemoveSubresolutionTetrahedra:
+        #     internalTetrahedraExtractor.RemoveSubresolutionTetrahedraOn()
+        #     internalTetrahedraExtractor.SetSubresolutionFactor(self.SubresolutionFactor)
+        #     internalTetrahedraExtractor.SetSurface(inputSurface)
+        # if capCenterIds.GetNumberOfIds() > 0:
+        #   internalTetrahedraExtractor.UseCapsOn()
+        #   internalTetrahedraExtractor.SetCapCenterIds(capCenterIds)
+        # internalTetrahedraExtractor.Update()
 
+        # self.DelaunayTessellation = internalTetrahedraExtractor.GetOutput()
+
+        self.PrintLog('voronoiDiagramFilter')
         voronoiDiagramFilter = vtkvmtk.vtkvmtkVoronoiDiagram3D()
         voronoiDiagramFilter.SetInput(self.DelaunayTessellation)
         voronoiDiagramFilter.SetRadiusArrayName(self.RadiusArrayName)
